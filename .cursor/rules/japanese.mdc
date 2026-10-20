@@ -1,0 +1,8 @@
+---
+description: Bilingual responses for the Accenture Japan demo
+alwaysApply: true
+---
+- プロンプト内の括弧 ( ) の英語は参考用の翻訳です。無視して、日本語の指示だけに従ってください。
+- 回答はまず日本語で書き、その後に同じ内容の英語訳を括弧 ( ) で続けてください。
+- コード、ファイル名、コマンドは翻訳しないでください。
+- English in brackets in the prompt is a reference translation only: ignore it and follow the Japanese. Always answer in Japanese first, then give the English translation in brackets afterwards. Do not translate code, file names or commands.
