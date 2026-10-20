@@ -67,6 +67,94 @@ describe Kuroko2::JobInstance do
     end
   end
 
+  describe '#logs' do
+    let(:definition) { create(:job_definition) }
+    let(:instance) { create(:job_instance, job_definition: definition) }
+
+    it 'stores warn and error messages' do
+      instance.logs.warn('careful')
+      instance.logs.error('boom')
+
+      expect(instance.logs.order(:id).pluck(:level, :message)).to eq [
+        ['WARN', 'careful'],
+        ['ERROR', 'boom'],
+      ]
+    end
+  end
+
+  describe '#working? and #error?' do
+    let(:definition) { create(:job_definition) }
+    let(:instance) { create(:job_instance, job_definition: definition) }
+
+    it 'is working until it is finished or canceled' do
+      expect(instance).to be_working
+      expect(instance).not_to be_error
+
+      instance.update!(error_at: Time.current)
+      expect(instance).to be_error
+
+      instance.update!(finished_at: Time.current)
+      expect(instance).not_to be_working
+      expect(instance).not_to be_error
+    end
+
+    it 'is not working after cancellation' do
+      instance.update!(canceled_at: Time.current)
+
+      expect(instance).not_to be_working
+    end
+  end
+
+  describe '#cancelable?' do
+    let(:definition) { create(:job_definition) }
+    let(:instance) { create(:job_instance, job_definition: definition) }
+
+    it 'follows the first token' do
+      expect(instance).not_to be_cancelable
+
+      instance.tokens.first.update!(status: Kuroko2::Token::FAILURE)
+
+      expect(instance).to be_cancelable
+    end
+  end
+
+  describe '#execution_minutes' do
+    let(:definition) { create(:job_definition) }
+    let(:instance) { create(:job_instance, job_definition: definition) }
+
+    it 'measures from creation until the first terminal timestamp' do
+      created_at = Time.zone.parse('2020-01-01 00:00:00')
+      instance.update!(created_at: created_at, error_at: created_at + 90)
+
+      expect(instance.execution_minutes).to eq 1.5
+    end
+
+    it 'uses the current time while the instance is still running' do
+      created_at = Time.zone.parse('2020-01-01 00:00:00')
+      instance.update!(created_at: created_at, finished_at: nil, canceled_at: nil, error_at: nil)
+
+      Timecop.freeze(created_at + 120) do
+        expect(instance.execution_minutes).to eq 2.0
+      end
+    end
+  end
+
+  describe '#log_memory_consumption' do
+    let(:definition) { create(:job_definition) }
+    let(:instance) { create(:job_instance, job_definition: definition) }
+
+    it 'keeps the larger consumption value' do
+      instance.log_memory_consumption(10)
+      expect(instance.memory_consumption_log.value).to eq 10
+
+      instance.log_memory_consumption(4)
+      expect(instance.reload.memory_consumption_log.value).to eq 10
+
+      instance.log_memory_consumption(12)
+      expect(instance.reload.memory_consumption_log.value).to eq 12
+    end
+  end
+
   describe '#status' do
     let(:instance) do
       create(
