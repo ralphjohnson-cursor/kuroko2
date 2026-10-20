@@ -112,4 +112,88 @@ describe Kuroko2::JobInstance do
       end
     end
   end
+
+  describe '#working? and #error?' do
+    let(:definition) { create(:job_definition) }
+    let(:instance) { create(:job_instance, job_definition: definition, error_at: Time.current) }
+
+    it 'treats an unfinished instance with error_at as an error' do
+      expect(instance).to be_working
+      expect(instance.error?).to eq(true)
+    end
+
+    it 'stops being an error after the instance finishes or is canceled' do
+      instance.update!(finished_at: Time.current)
+      expect(instance).not_to be_working
+      expect(instance.error?).to eq(false)
+
+      instance.update!(finished_at: nil, canceled_at: Time.current)
+      expect(instance).not_to be_working
+      expect(instance.error?).to eq(false)
+    end
+  end
+
+  describe '#cancelable?' do
+    let(:definition) { create(:job_definition) }
+    let(:instance) { create(:job_instance, job_definition: definition) }
+
+    it 'follows the first token' do
+      instance.tokens.first.update!(status: Kuroko2::Token::FAILURE)
+      expect(instance.cancelable?).to eq(true)
+
+      instance.tokens.first.update!(status: Kuroko2::Token::WORKING)
+      expect(instance.cancelable?).to eq(false)
+    end
+
+    it 'is nil when the instance has no token' do
+      instance.tokens.destroy_all
+
+      expect(instance.cancelable?).to be_nil
+    end
+  end
+
+  describe '#execution_minutes' do
+    let(:definition) { create(:job_definition) }
+    let(:instance) { create(:job_instance, job_definition: definition) }
+    let(:created) { Time.zone.parse('2026-01-01 00:00:00') }
+
+    it 'prefers error_at, then canceled_at, then finished_at' do
+      instance.update_columns(
+        created_at: created,
+        error_at: created + 10.minutes,
+        canceled_at: created + 20.minutes,
+        finished_at: created + 50.minutes,
+      )
+      expect(instance.execution_minutes).to eq(10.0)
+
+      instance.update_columns(error_at: nil)
+      expect(instance.execution_minutes).to eq(20.0)
+
+      instance.update_columns(canceled_at: nil)
+      expect(instance.execution_minutes).to eq(50.0)
+    end
+
+    it 'uses the current time while the instance is still running' do
+      instance.update_columns(created_at: created, error_at: nil, canceled_at: nil, finished_at: nil)
+
+      Timecop.freeze(created + 90.minutes + 30.seconds) do
+        expect(instance.execution_minutes).to eq(90.5)
+      end
+    end
+  end
+
+  describe '#log_memory_consumption' do
+    let(:definition) { create(:job_definition) }
+    let(:instance) { create(:job_instance, job_definition: definition) }
+
+    it 'keeps the larger consumption value' do
+      instance.log_memory_consumption(5)
+      instance.log_memory_consumption(3)
+
+      expect(instance.memory_consumption_log.value).to eq(5)
+
+      instance.log_memory_consumption(8)
+      expect(instance.memory_consumption_log.reload.value).to eq(8)
+    end
+  end
 end
